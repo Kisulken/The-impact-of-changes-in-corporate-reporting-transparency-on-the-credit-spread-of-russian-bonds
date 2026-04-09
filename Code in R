@@ -1,0 +1,2678 @@
+#### Формирование данных ####
+library(readxl)
+data <- read_excel("test_data.xlsx")
+t_template <- read_excel("t_template.xlsx") 
+data_template <- read_excel("data_template.xlsx") 
+data_template$emission_dt <- as.Date(data_template$emission_dt)
+
+
+year_template <- read_excel("year_template.xlsx") 
+emitent_template <- read_excel("emitent_template.xlsx") 
+emitent_template
+year_template
+
+report_dt <- as.Date(data_template$report_dt)
+
+result <- t_template %>%
+  cross_join(data_template)
+
+company_template <- year_template %>%
+  cross_join(emitent_template)
+company_template
+
+result
+writexl::write_xlsx(result, path = "result_dates3.xlsx")
+writexl::write_xlsx(company_template, path = "company_template.xlsx")
+
+#### Библиотеки ####
+library(readxl)
+library("writexl")
+library("strucchange")
+library("readxl")
+library("tsDyn")
+library("aTSA")
+library("dplyr")
+library("knitr")
+library("texreg")
+library("tidyverse")
+library("plm")
+library("PortfolioAnalytics")
+library("ROI")
+library("ROI.plugin.glpk")
+library("DEoptim")
+library("ROI.plugin.quadprog")
+library("quantmod")
+library("ggplot2")
+library("PerformanceAnalytics")
+library("xts")
+library("dynlm")
+library("ARDL")
+library("urca")
+library("timeSeries")
+library("MSwM")
+library("stats")
+library("lmtest")
+library("sandwich")
+library("car")
+library("stargazer")
+library("readr")
+library("ggpubr")
+library("modelsummary")
+library("oglmx")
+library("glmnet")
+library("effects")
+library("nnet")
+library("erer")
+library("corrplot")
+library("devtools")
+library("haven")
+library("gt")
+library("caret")
+library("lares")
+library("AER")
+library("pROC")
+library("pscl")
+library("cvms")
+library(flextable)
+library(plm)
+library(patchwork)
+
+#### Загрузка датасета и расчет по компаниям ####
+
+data_new <- read_excel("result_dates6.xlsx")
+data_new
+head(data_new)
+str(data_new)
+names(data_new)
+
+
+# выбираем данные для пред периода
+data_pre_period <- data_new[data_new$t_number < -3, ]
+
+# Отбираем более-менее ликвидные облигации (средняя ликвидность более 100 000)
+data_pre_period <- data_pre_period[data_pre_period$avg_liq >= 100000, ]
+view(data_pre_period)
+
+# Перевелем данные в панельный формат
+pdata <- pdata.frame(data_pre_period, index = c("year_and_name", "t_number"))
+View(pdata)
+
+# Посмотрим на переменные
+plot(data_pre_period$scs)
+plot(data_pre_period$r_f)
+plot(data_pre_period$slope)
+plot(data_pre_period$imoex)
+plot(data_pre_period$RVI)
+plot(data_pre_period$duration)
+names(data_pre_period)
+
+# Посмотрим на корреляционную матрицу
+new_t <- data_pre_period[ , c(14, 15, 16, 17, 18, 19, 20)]
+view(new_t)
+library(corrplot)
+cor_matrix <- new_t %>% 
+  cor()
+corrplot(cor_matrix, method = "color", type = "upper",
+         addCoef.col = "black", tl.cex = 0.8)
+
+## Построим 3 модели
+
+# Pooled OLS
+pooled <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata, model = "random")
+summary(re)
+
+# Тест Хаусмана
+phtest(fe, re)
+# Лучше fe
+
+
+# Графики результатов
+
+
+
+
+
+
+
+
+
+library(modelsummary)
+
+modelsummary(
+  list("Pooled OLS"      = pooled,
+       "Fixed Effects"   = fe,
+       "Random Effects"  = re),
+  output = "models.html",
+  stars  = TRUE
+)
+
+
+#install.packages("htmltools")
+
+
+
+
+
+
+
+
+
+# Посмотрим на остатки
+residuals_fe <- residuals(fe)
+
+# Остатки vs подогнанные значения
+ggplot(data.frame(fitted = fitted(fe), resid = residuals_fe),
+       aes(x = fitted, y = resid)) +
+  geom_point(alpha = 0.4) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Остатки vs Подогнанные значения")
+
+
+#### Достаем коэффиценты из модели и считаем по ним пост период ####
+
+# Достаем коэффиценты
+b1 <- fe$coefficients[1]  # заданный коэффициент
+b2 <- fe$coefficients[2]  # заданный коэффициент
+b3 <- fe$coefficients[3]  # заданный коэффициент
+b4 <- fe$coefficients[4]  # заданный коэффициент
+b5 <- fe$coefficients[5]  # заданный коэффициент
+
+
+# Достаем коэффиценты
+b1 <- re$coefficients[1]  # заданный коэффициент
+b2 <- re$coefficients[2]  # заданный коэффициент
+b3 <- re$coefficients[3]  # заданный коэффициент
+b4 <- re$coefficients[4]  # заданный коэффициент
+b5 <- re$coefficients[5]  # заданный коэффициент
+
+
+
+## выбираем данные для пост периода
+data_post_period <- data_new[data_new$t_number >= -5, ]
+data_post_period <- data_post_period[data_post_period$avg_liq >= 100000, ]
+view(data_post_period)
+
+# Считаем y_hat
+y_hat <-  b1*data_post_period$r_f + b2*data_post_period$slope + b3*data_post_period$RVI +
+  b4*data_post_period$imoex + b5*data_post_period$duration
+
+#Достаем ошибки
+post_errors <- data_post_period$scs - y_hat
+plot(post_errors)
+
+# Добавляем ошибки к датафрейму
+data_post_period$post_errors <- post_errors
+
+# Считаем суммарные ошибки за период по каждой облигации
+sum_errors <- data_post_period %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors = sum(post_errors))
+
+#### Загружаем данные по компаниям и считаем модели ####
+
+# Добавим данные по компаниям
+data_company <- read_excel("result_dates7.xlsx")
+
+# Отбираем наиболее ликвидные облигации
+data_company <- data_company[data_company$liq > 100000, ]
+str(data_company)
+names(data_company)
+# Добавляем остатки
+data_company$sum_errors <- sum_errors$sum_errors
+view(data_company)
+
+# Данные в панельном формате
+pdata2 <- pdata.frame(data_company, index = c("name", "year"))
+pdata2
+str(pdata2)
+names(pdata2)
+
+# Посмотрим на переменные
+plot(data_company$sum_errors)
+plot(data_company$transp_index)
+plot(data_company$ROE)
+plot(data_company$lev)
+# Рычаг нужно чистить от выбросов, иначе невозможно смотреть
+plot(log(data_company$assets))
+plot(log(data_company$liq))
+plot(data_company$crrating)
+plot(data_company$is_bank)
+plot(log(data_company$volume))
+names(data_company)
+
+# Смотрим на корреляционную матрицу
+new_t2 <- data_company[ , c(6, 7, 8, 9, 10, 11, 12, 13, 14)]
+view(new_t2)
+cor_matrix <- new_t2 %>% 
+  cor()
+corrplot(cor_matrix, method = "color", type = "upper",
+         addCoef.col = "black", tl.cex = 0.8)
+# ROE и рычаг дают почти полную мультиколлинеарность, вместе не используем 
+# Аналогично is_bank и assets
+
+# Строим все модели, потом будем улучшать
+
+# Pooled OLS
+pooled <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) 
+              + crrating + log(liq) + is_bank + log(volume), data = pdata2, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) 
+          + crrating + log(liq) + is_bank + log(volume), data = pdata2, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) 
+          + crrating + log(liq) + is_bank + log(volume), data = pdata2, model = "random")
+summary(re)
+
+# Тест Хаусмана
+phtest(fe, re)  
+# Лучше re
+
+
+# Будем улучшать Random Effects
+# Убираем мультиколлинеарные переменные рычаг (оставляем только roe) и is_bank (оставляем только assets)
+re2 <- plm(sum_errors ~ transp_index + ROE + log(assets) 
+           + crrating + log(liq) + log(volume) , data = pdata2, model = "random")
+summary(re2)
+
+# Убираем наименее значимую переменную (активы)
+re3 <- plm(sum_errors ~ transp_index + ROE
+           + crrating + log(liq) + log(volume) , data = pdata2, model = "random")
+summary(re3)
+
+# Убираем следующую наименее значимую переменную (roe)
+re4 <- plm(sum_errors ~ transp_index
+           + crrating + log(liq) + log(volume) , data = pdata2, model = "random")
+summary(re4)
+
+# Убираем следующую наименее значимую переменную объем
+re5 <- plm(sum_errors ~ transp_index
+           + crrating + log(liq) , data = pdata2, model = "random")
+summary(re5)
+
+# Убираем следующую наименее значимую переменную кредитный рейтинг
+re6 <- plm(sum_errors ~ transp_index
+             , data = pdata2, model = "random")
+summary(re6)
+
+
+
+
+# Fixed Effects улучшение
+fe_upd <- plm(sum_errors ~ transp_index + ROE + log(liq), data = pdata2, model = "random")
+summary(fe_upd)
+
+
+
+
+
+# Гетероскедастичность
+
+plot(data_company$transp_index, data_company$sum_errors)
+# По графику более-менее нормально
+
+# Для панельных данных — через demean (это ии я хз, я график посмотрел и мне норм)
+library(dplyr)
+df_demeaned <- pdata2 %>%
+  group_by(name) %>%
+  mutate(across(c(sum_errors, transp_index), ~ . - mean(.))) %>%
+  ungroup()
+
+lm_demeaned <- lm(sum_errors ~ transp_index, data = df_demeaned)
+bptest(lm_demeaned)
+# С гетероскедастичностью по идее проблем нет
+
+
+#### Проверка результатов при различных уровнях фильтра ликвидности ####
+
+liq_level <- 100000
+
+# Загрузка даннных
+data_new <- read_excel("result_dates6.xlsx")
+data_company <- read_excel("result_dates7.xlsx")
+
+# выбираем данные для пред периода
+data_pre_period_test <- data_new[data_new$t_number < -5, ]
+data_pre_period_test <- data_pre_period_test[data_pre_period_test$avg_liq >= liq_level, ]
+
+## выбираем данные для пост периода
+data_post_period_test <- data_new[data_new$t_number >= -5, ]
+data_post_period_test <- data_post_period_test[data_post_period_test$avg_liq >= liq_level, ]
+
+# Отбираем наиболее ликвидные облигации
+data_company_test <- data_company[data_company$liq >= liq_level, ]
+
+# Перевелем данные в панельный формат
+pdata_test <- pdata.frame(data_pre_period_test, index = c("year_and_name", "t_number"))
+
+fe_test <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata_test, model = "within")
+summary(fe_test)
+
+# Достаем коэффиценты
+b1 <- fe_test$coefficients[1]  # заданный коэффициент
+b2 <- fe_test$coefficients[2]  # заданный коэффициент
+b3 <- fe_test$coefficients[3]  # заданный коэффициент
+b4 <- fe_test$coefficients[4]  # заданный коэффициент
+b5 <- fe_test$coefficients[5]  # заданный коэффициент
+
+# Считаем y_hat
+y_hat <-  b1*data_post_period_test$r_f + b2*data_post_period_test$slope + b3*data_post_period_test$RVI +
+  b4*data_post_period_test$imoex + b5*data_post_period_test$duration
+
+#Достаем ошибки
+post_errors <- data_post_period_test$scs - y_hat
+
+# Добавляем ошибки к датафрейму
+data_post_period_test$post_errors <- post_errors
+
+# Считаем суммарные ошибки за период по каждой облигации
+sum_errors <- data_post_period_test %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors = sum(post_errors))
+
+
+# Добавляем остатки
+data_company_test$sum_errors <- sum_errors$sum_errors
+
+# Данные в панельном формате
+pdata2_test <- pdata.frame(data_company_test, index = c("name", "year"))
+pdata2_test
+
+# Считаем финальную модель
+re_final_test <- plm(sum_errors ~ transp_index
+           , data = pdata2_test, model = "random")
+summary(re_final_test)
+
+#### Проверяем ии ####
+
+
+
+library(readxl)
+library(plm)
+library(dplyr)
+
+# Загрузка данных (один раз, вне цикла)
+data_new     <- read_excel("result_dates6.xlsx")
+data_company <- read_excel("result_dates7.xlsx")
+
+# Список для хранения результатов
+results <- list()
+
+for (liq_level in seq(10000, 1000000, by = 10000)) {
+  
+  cat("\n--- liq_level:", liq_level, "---\n")
+  
+  # Фильтрация данных
+  data_pre_period_test  <- data_new[data_new$t_number < -5 & data_new$avg_liq >= liq_level, ]
+  data_post_period_test <- data_new[data_new$t_number >= -5 & data_new$avg_liq >= liq_level, ]
+  data_company_test     <- data_company[data_company$liq >= liq_level, ]
+  
+  # Пропускаем итерацию если данных недостаточно
+  if (nrow(data_pre_period_test) < 10 | nrow(data_post_period_test) < 10) {
+    cat("Недостаточно данных, пропускаем\n")
+    next
+  }
+  
+  # Панельный формат и FE модель
+  pdata_test <- pdata.frame(data_pre_period_test, index = c("year_and_name", "t_number"))
+  
+  fe_test <- tryCatch(
+    plm(scs ~ r_f + slope + RVI + imoex + duration,
+        data = pdata_test, model = "within"),
+    error = function(e) {
+      cat("Ошибка FE модели:", e$message, "\n")
+      return(NULL)
+    }
+  )
+  
+  if (is.null(fe_test)) next
+  
+  # Достаем коэффициенты
+  b1 <- fe_test$coefficients[1]
+  b2 <- fe_test$coefficients[2]
+  b3 <- fe_test$coefficients[3]
+  b4 <- fe_test$coefficients[4]
+  b5 <- fe_test$coefficients[5]
+  
+  # Считаем y_hat и ошибки
+  y_hat <- b1 * data_post_period_test$r_f +
+    b2 * data_post_period_test$slope +
+    b3 * data_post_period_test$RVI +
+    b4 * data_post_period_test$imoex +
+    b5 * data_post_period_test$duration
+  
+  data_post_period_test$post_errors <- data_post_period_test$scs - y_hat
+  
+  # Суммарные ошибки по облигациям
+  sum_errors <- data_post_period_test %>%
+    group_by(year_and_name) %>%
+    summarise(sum_errors = sum(post_errors), .groups = "drop")
+  
+  # Join вместо прямого присвоения (исправление прошлой проблемы)
+  data_company_test <- data_company_test %>%
+    left_join(sum_errors, by = "year_and_name")
+  
+  # Пропускаем если нет пересечений
+  if (all(is.na(data_company_test$sum_errors))) {
+    cat("Нет пересечений между data_company_test и sum_errors, пропускаем\n")
+    next
+  }
+  
+  # Панельный формат и RE модель
+  pdata2_test <- pdata.frame(data_company_test, index = c("name", "year"))
+  
+  re_final_test <- tryCatch(
+    plm(sum_errors ~ transp_index, data = pdata2_test, model = "random"),
+    error = function(e) {
+      cat("Ошибка RE модели:", e$message, "\n")
+      return(NULL)
+    }
+  )
+
+  if (is.null(re_final_test)) next
+  # Сохраняем результаты
+  results[[as.character(liq_level)]] <- list(
+    liq_level     = liq_level,
+    n_pre         = nrow(data_pre_period_test),
+    n_post        = nrow(data_post_period_test),
+    n_company     = nrow(data_company_test),
+    fe_coefs      = coef(fe_test),
+    re_coef       = coef(re_final_test)["transp_index"],
+    re_pvalue     = summary(re_final_test)$coefficients["transp_index", 4]
+  )
+  
+  cat("RE коэффициент transp_index:", round(coef(re_final_test)["transp_index"], 4),
+      "| p-value:", round(summary(re_final_test)$coefficients["transp_index", 4], 4), "\n")
+}
+
+# Итоговая таблица результатов
+results_df <- bind_rows(lapply(results, function(x) {
+  data.frame(
+    liq_level  = x$liq_level,
+    n_pre      = x$n_pre,
+    n_post     = x$n_post,
+    n_company  = x$n_company,
+    re_coef    = x$re_coef,
+    re_pvalue  = x$re_pvalue
+  )
+}))
+
+print(results_df)
+
+
+#### Новый код ####
+
+# Заранеее выставляем параметры по которым фильтруем
+left_border <- -5
+avg_liq_threshold <- 10000
+trade_liq_threshold <- 10000
+
+
+data_new <- read_excel("result_dates6.xlsx")
+
+#### Фильтруем данные
+# Отбираем более-менее ликвидные облигации (средняя ликвидность более 100 000)
+data_pre_period <- data_pre_period[data_pre_period$avg_liq >= avg_liq_threshold, ]
+
+## Отбираем облиги, которые торговались в период выпуска отчетности
+bonds_selected <- data_new[data_new$t_number >= left_border,]
+bonds_selected2 <- bonds_selected[bonds_selected$liq < trade_liq_threshold, ]  
+distinct_isin <- distinct(bonds_selected2, year_and_name)
+distinct_isin
+
+
+# Фильтруем исходный датасет по отобранным облигациям (все наблюдения по ним)
+df_filtered <- data_new %>%
+  dplyr::filter(!year_and_name %in% distinct_isin$year_and_name)
+df_filtered
+
+# Отбирем данные препериода
+df_filtered_preperiod <- df_filtered[df_filtered$t_number < left_border,]
+
+# Переведем данные в панельный формат
+pdata <- pdata.frame(df_filtered_preperiod, index = c("year_and_name", "t_number"))
+
+# Посмотрим на переменные
+#plot(df_filtered_preperiod$scs)
+#plot(df_filtered_preperiod$r_f)
+#plot(df_filtered_preperiod$slope)
+#plot(df_filtered_preperiod$imoex)
+#plot(df_filtered_preperiod$RVI)
+#plot(df_filtered_preperiod$duration)
+#names(df_filtered_preperiod)
+
+# Посмотрим на корреляционную матрицу
+#new_t <- df_filtered_preperiod[ , c(14, 15, 16, 17, 18, 19, 20)]
+#library(corrplot)
+#cor_matrix <- new_t %>% 
+ # cor()
+#corrplot(cor_matrix, method = "color", type = "upper",
+ #        addCoef.col = "black", tl.cex = 0.8)
+
+## Построим 3 модели
+
+# Pooled OLS
+pooled <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(scs ~ r_f + slope + RVI + imoex + duration, data = pdata, model = "random")
+summary(re)
+
+# Тест Хаусмана
+phtest(fe, re)
+# Лучше fe
+
+
+# Посмотрим на остатки
+#residuals_fe <- residuals(fe)
+
+# Остатки vs подогнанные значения
+#ggplot(data.frame(fitted = fitted(fe), resid = residuals_fe),
+ #      aes(x = fitted, y = resid)) +
+  #geom_point(alpha = 0.4) +
+  #geom_hline(yintercept = 0, color = "red") +
+  #labs(title = "Остатки vs Подогнанные значения")
+
+
+#### Достаем коэффиценты из модели и считаем по ним пост период ####
+
+# Достаем коэффиценты
+b1 <- fe$coefficients[1]  # заданный коэффициент
+b2 <- fe$coefficients[2]  # заданный коэффициент
+b3 <- fe$coefficients[3]  # заданный коэффициент
+b4 <- fe$coefficients[4]  # заданный коэффициент
+b5 <- fe$coefficients[5]  # заданный коэффициент
+
+## выбираем данные для пост периода
+data_filtered_post_period <- df_filtered[df_filtered$t_number >= left_border, ]
+
+
+# Считаем y_hat
+y_hat <-  b1*data_filtered_post_period$r_f + b2*data_filtered_post_period$slope + b3*data_filtered_post_period$RVI +
+  b4*data_filtered_post_period$imoex + b5*data_filtered_post_period$duration
+
+#Достаем ошибки
+post_errors <- data_filtered_post_period$scs - y_hat
+#plot(post_errors)
+
+
+# Добавляем ошибки к датафрейму
+data_filtered_post_period$post_errors <- post_errors
+
+# Считаем суммарные ошибки за период по каждой облигации
+sum_errors <- data_filtered_post_period %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors = sum(post_errors))
+#plot(sum_errors$sum_errors)
+
+#### Загружаем данные по компаниям и считаем модели ####
+
+# Добавим данные по компаниям
+data_company <- read_excel("result_dates7.xlsx")
+
+# Отбираем наиболее ликвидные облигации
+df_company_filtered <- data_company %>%
+  dplyr::filter(!year_and_name %in% distinct_isin$year_and_name)
+df_company_filtered
+
+
+# Добавляем остатки
+df_company_filtered$sum_errors <- sum_errors$sum_errors
+
+
+# Данные в панельном формате
+pdata2 <- pdata.frame(df_company_filtered, index = c("name", "year"))
+pdata2
+
+
+# Посмотрим на переменные
+#plot(df_company_filtered$sum_errors)
+#plot(df_company_filtered$transp_index)
+#plot(df_company_filtered$ROE)
+#plot(df_company_filtered$lev)
+# Рычаг нужно чистить от выбросов, иначе невозможно смотреть
+#plot(log(df_company_filtered$assets))
+#plot(log(df_company_filtered$liq))
+#plot(df_company_filtered$crrating)
+#plot(df_company_filtered$is_bank)
+#plot(log(df_company_filtered$volume))
+
+
+# Смотрим на корреляционную матрицу
+#new_t2 <- df_company_filtered[ , c(6, 7, 8, 9, 10, 11, 12, 13, 14)]
+#cor_matrix <- new_t2 %>% 
+ # cor()
+#corrplot(cor_matrix, method = "color", type = "upper",
+#         addCoef.col = "black", tl.cex = 0.8)
+# ROE и рычаг дают почти полную мультиколлинеарность, вместе не используем 
+# Аналогично is_bank и assets
+
+# Строим все модели, потом будем улучшать
+pdata2
+# Pooled OLS
+pooled <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) 
+              + crrating + log(liq) + is_bank + log(volume), data = pdata2, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) 
+          + crrating + log(liq) + is_bank + log(volume), data = pdata2, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) 
+          + crrating + log(liq) + is_bank + log(volume), data = pdata2, model = "random")
+summary(re)
+
+# Тест Хаусмана
+phtest(fe, re)  
+# Лучше re
+
+# Попробовать поменять ошибки
+
+#### Улучшение моделей ####
+
+
+# Будем улучшать Random Effects
+# Убираем мультиколлинеарные переменные рычаг (оставляем только roe) и is_bank (оставляем только assets)
+re2 <- plm(sum_errors ~ transp_index 
+              , data = pdata2, model = "random")
+summary(re2)
+plot(df_company_filtered$transp_index, df_company_filtered$sum_errors)
+
+
+#### Brand new method ####
+
+
+# Заранеее выставляем параметры по которым фильтруем
+left_border <- -5
+avg_liq_threshold <- 10000
+trade_liq_threshold <- 10000
+
+
+data_new <- read_excel("result_dates8.xlsx")
+
+#### Фильтруем данные
+# Отбираем более-менее ликвидные облигации (средняя ликвидность более 100 000)
+data_pre_period <- data_pre_period[data_pre_period$avg_liq >= avg_liq_threshold, ]
+
+## Отбираем облиги, которые торговались в период выпуска отчетности
+bonds_selected <- data_new[data_new$t_number >= left_border,]
+bonds_selected2 <- bonds_selected[bonds_selected$liq < trade_liq_threshold, ]  
+distinct_isin <- distinct(bonds_selected2, year_and_name)
+distinct_isin
+
+
+# Фильтруем исходный датасет по отобранным облигациям (все наблюдения по ним)
+df_filtered <- data_new %>%
+  dplyr::filter(!year_and_name %in% distinct_isin$year_and_name)
+df_filtered
+
+# Отбирем данные препериода
+df_filtered_preperiod <- df_filtered[df_filtered$t_number < left_border,]
+
+# Переведем данные в панельный формат
+pdata <- pdata.frame(df_filtered_preperiod, index = c("year_and_name", "t_number"))
+
+# Посмотрим на переменные
+#plot(df_filtered_preperiod$scs)
+#plot(df_filtered_preperiod$r_f)
+#plot(df_filtered_preperiod$slope)
+#plot(df_filtered_preperiod$imoex)
+#plot(df_filtered_preperiod$RVI)
+#plot(df_filtered_preperiod$duration)
+#names(df_filtered_preperiod)
+
+#Посмотрим на корреляционную матрицу
+names(df_filtered_preperiod)
+new_t <- df_filtered_preperiod[ , c(14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26)]
+library(corrplot)
+cor_matrix <- new_t %>% 
+ cor()
+corrplot(cor_matrix, method = "color", type = "upper",
+        addCoef.col = "black", tl.cex = 0.8)
+summary(df_filtered_preperiod)
+summary(df_company_filtered)
+## Построим 3 модели
+names(pdata)
+pdata$liq %>% min()
+plot(df_filtered_preperiod$ROE)
+
+# Pooled OLS
+pooled <- plm(scs ~ r_f + slope + RVI + imoex + duration 
+              + crrating + ROE + lev + log(liq+1), data = pdata, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(scs ~ r_f + slope + RVI + imoex + duration 
+          + crrating + lev + log(assets) + log(liq+1), data = pdata, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(scs ~ r_f + slope + RVI + imoex + duration 
+          + crrating + log(liq+1), data = pdata, model = "random")
+summary(re)
+
+
+# Тест Хаусмана
+phtest(fe, re)
+# Лучше fe
+
+
+# Посмотрим на остатки
+residuals_fe <- residuals(fe)
+
+# Остатки vs подогнанные значения
+ggplot(data.frame(fitted = fitted(fe), resid = residuals_fe),
+      aes(x = fitted, y = resid)) +
+geom_point(alpha = 0.4) +
+geom_hline(yintercept = 0, color = "red") +
+labs(title = "Остатки vs Подогнанные значения")
+
+
+#### Достаем коэффиценты из модели и считаем по ним пост период ####
+
+# Достаем коэффиценты
+r_const <- re$coefficients[1]  # заданный коэффициент
+r1 <- re$coefficients[2]  # заданный коэффициент
+r2 <- re$coefficients[3]  # заданный коэффициент
+r3 <- re$coefficients[4]  # заданный коэффициент
+r4 <- re$coefficients[5]  # заданный коэффициент
+r5 <- re$coefficients[6]  # заданный коэффициент
+r6 <- re$coefficients[7]  # заданный коэффициент
+r7 <- re$coefficients[8]  # заданный коэффициент
+
+
+# Достаем коэффиценты
+f1 <- fe$coefficients[1]  # заданный коэффициент
+f2 <- fe$coefficients[2]  # заданный коэффициент
+f3 <- fe$coefficients[3]  # заданный коэффициент
+f4 <- fe$coefficients[4]  # заданный коэффициент
+f5 <- fe$coefficients[5]  # заданный коэффициент
+f6 <- fe$coefficients[6]  # заданный коэффициент
+
+
+
+
+## выбираем данные для пост периода
+data_filtered_post_period <- df_filtered[df_filtered$t_number >= left_border, ]
+data_filtered_post_period <- data_filtered_post_period[data_filtered_post_period$t_number <= 3, ]
+
+# Считаем y_hat
+y_hat_f <-  f1*data_filtered_post_period$r_f + f2*data_filtered_post_period$slope + f3*data_filtered_post_period$RVI +
+  f4*data_filtered_post_period$imoex + f5*data_filtered_post_period$duration +
+  f6*log(data_filtered_post_period$liq+1)
+
+
+y_hat_r <-  r_const + r1*data_filtered_post_period$r_f + r2*data_filtered_post_period$slope + r3*data_filtered_post_period$RVI +
+  r4*data_filtered_post_period$imoex + r5*data_filtered_post_period$duration +
+  r6*data_filtered_post_period$crrating + r7*log(data_filtered_post_period$liq+1)
+
+
+
+
+#Достаем ошибки
+post_errors_f <- data_filtered_post_period$scs - y_hat_f
+post_errors_r <- data_filtered_post_period$scs - y_hat_r
+plot(post_errors_r)
+
+
+# Добавляем ошибки к датафрейму
+data_filtered_post_period$post_errors_f <- post_errors_f
+data_filtered_post_period$post_errors_r <- post_errors_r
+
+# Считаем суммарные ошибки за период по каждой облигации
+sum_errors_f <- data_filtered_post_period %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors_f = sum(post_errors_f))
+
+
+sum_errors_r <- data_filtered_post_period %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors_r = sum(post_errors_r))
+
+
+#### Загружаем данные по компаниям и считаем модели ####
+
+# Добавим данные по компаниям
+data_company <- read_excel("result_dates7.xlsx")
+
+# Отбираем наиболее ликвидные облигации
+df_company_filtered <- data_company %>%
+  dplyr::filter(!year_and_name %in% distinct_isin$year_and_name)
+df_company_filtered
+
+
+# Добавляем остатки
+df_company_filtered$sum_errors_f <- sum_errors_f$sum_errors_f
+df_company_filtered$sum_errors_r <- sum_errors_r$sum_errors_r
+
+plot(df_company_filtered$transp_index, df_company_filtered$sum_errors_f)
+plot(df_company_filtered$transp_index, df_company_filtered$sum_errors_r)
+
+# Данные в панельном формате
+pdata2 <- pdata.frame(df_company_filtered, index = c("name", "year"))
+pdata2
+
+
+# Посмотрим на переменные
+plot(df_company_filtered$sum_errors_f)
+plot(df_company_filtered$transp_index)
+#plot(df_company_filtered$ROE)
+#plot(df_company_filtered$lev)
+# Рычаг нужно чистить от выбросов, иначе невозможно смотреть
+#plot(log(df_company_filtered$assets))
+#plot(log(df_company_filtered$liq))
+#plot(df_company_filtered$crrating)
+#plot(df_company_filtered$is_bank)
+#plot(log(df_company_filtered$volume))
+
+summary()
+plot(df_company_filtered$sum_errors_f)
+# Смотрим на корреляционную матрицу
+#new_t2 <- df_company_filtered[ , c(6, 7, 8, 9, 10, 11, 12, 13, 14)]
+#cor_matrix <- new_t2 %>% 
+# cor()
+#corrplot(cor_matrix, method = "color", type = "upper",
+#         addCoef.col = "black", tl.cex = 0.8)
+# ROE и рычаг дают почти полную мультиколлинеарность, вместе не используем 
+# Аналогично is_bank и assets
+
+# Строим все модели, потом будем улучшать
+pdata2 %>% names()
+# Pooled OLS
+pooled <- plm(sum_errors_r ~ transp_index + lev + ROE + log(assets) +
+                crrating, data = pdata2, model = "pooling")
+summary(pooled)
+pooled <- plm(sum_errors_f ~transp_index + lev + ROE + log(assets) +
+                crrating, data = pdata2, model = "pooling")
+summary(pooled)
+
+plot(data_company$ROE)
+# Fixed Effects
+fe <- plm(sum_errors_r ~ transp_index + lev + ROE + log(assets) +
+            crrating, data = pdata2, model = "within")
+summary(fe)
+fe <- plm(sum_errors_f ~ transp_index + lev + ROE + log(assets) +
+            crrating, data = pdata2, model = "within")
+summary(fe)
+
+
+# Random Effects
+re <- plm(sum_errors_r ~ transp_index + lev + ROE + log(assets) +
+            crrating, data = pdata2, model = "random")
+summary(re)
+re <- plm(sum_errors_f ~ transp_index + lev + ROE + log(assets) +
+            crrating, data = pdata2, model = "random")
+summary(re)
+
+# Тест Хаусмана
+phtest(fe, re)  
+# Лучше re
+
+# Попробовать поменять ошибки
+
+#### Улучшение моделей ####
+
+
+# Будем улучшать Random Effects
+# Убираем мультиколлинеарные переменные рычаг (оставляем только roe) и is_bank (оставляем только assets)
+re2 <- plm(sum_errors ~ transp_index 
+           , data = pdata2, model = "random")
+summary(re2)
+plot(df_company_filtered$transp_index, df_company_filtered$sum_errors)
+
+
+#### Новый код 2 ####
+
+
+
+#### Шаг 1. Загрузка данных и фильтрация ####
+
+
+# Заранеее выставляем параметры по которым фильтруем
+left_border <- -5
+avg_liq_threshold <- 10000
+trade_liq_threshold <- 10000
+
+
+#Читаем данные
+data_new <- read_excel("result_dates8.xlsx")
+
+#### Фильтруем данные
+# Отбираем более-менее ликвидные облигации (средняя ликвидность более 10000)
+data_pre_period <- data_pre_period[data_pre_period$avg_liq >= avg_liq_threshold, ]
+
+## Отбираем облиги, которые торговались в период выпуска отчетности
+bonds_selected <- data_new[data_new$t_number >= left_border,]
+bonds_selected2 <- bonds_selected[bonds_selected$liq < trade_liq_threshold, ]  
+distinct_isin <- distinct(bonds_selected2, year_and_name)
+distinct_isin
+
+
+# Фильтруем исходный датасет по отобранным облигациям (все наблюдения по ним)
+df_filtered <- data_new %>%
+  dplyr::filter(!year_and_name %in% distinct_isin$year_and_name)
+df_filtered
+
+# Отбирем данные препериода
+df_filtered_preperiod <- df_filtered[df_filtered$t_number < left_border,]
+# Отбирем торгуемые облигации
+df_filtered_preperiod <- df_filtered_preperiod[df_filtered_preperiod$liq > trade_liq_threshold,]
+
+
+
+#### Шаг 2. Формируем SCS ####
+summary(df_filtered_preperiod)
+plot(df_filtered_preperiod$trade_dt, df_filtered_preperiod$g_spread)
+
+# Посчитаем стандартное отклонение кредитного спреда
+sd_by_bond <- df_filtered_preperiod %>%
+  dplyr::filter(t_number >= -150, t_number <= -6) %>%
+  group_by(year_and_name) %>%
+  summarise(sd_g_spread = sd(g_spread, na.rm = TRUE))
+sd_by_bond
+
+df_filtered_preperiod <- df_filtered_preperiod %>%
+  left_join(sd_by_bond, by = "year_and_name")
+
+# Добавим обновленный scs
+df_filtered_preperiod$scs_v2 <- df_filtered_preperiod$g_spread / df_filtered_preperiod$sd_g_spread
+
+#### Шаг 3. Описательные статистики препериода ####
+
+# Просто summary
+summary(df_filtered_preperiod[c(6, 13:28)])
+
+# Смотрим описательные статистики
+library(stargazer)
+library(ggcorrplot)
+stargazer(as.data.frame(df_filtered_preperiod), type = "html", summary = TRUE, out = "stat.html")
+
+# Корреляционная матрица
+cor_data <- df_filtered_preperiod %>%
+  mutate(log_liq = log(liq)) %>%
+  select(r_f, slope, RVI, imoex, duration, log_liq, scs_v2) %>%
+  dplyr::filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+# Корреляционная матрица
+cor_matrix_preperiod <- cor(cor_data, method = "pearson")
+
+# График
+mtrx_plot_preperiod <- ggcorrplot(
+  cor_matrix_preperiod,
+  method    = "square",        # квадраты (можно "circle")
+  type      = "lower",         # нижний треугольник
+  lab       = TRUE,            # показывать значения
+  lab_size  = 4,
+  colors    = c("#E84855", "white", "#2E86AB"),  # красный — синий
+  outline.color = "white",
+  ggtheme   = theme_minimal(base_size = 13) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 15, hjust = 0.5),
+      legend.title    = element_text(size = 10),
+      axis.text       = element_text(size = 11)
+    )
+) +
+  labs(title = "Корреляционная матрица")
+mtrx_plot_preperiod
+
+#### Шаг 4. Графики препериода ####
+# Как выглядит переменные
+my_theme <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14, margin = margin(b = 8)),
+    plot.background  = element_rect(fill = "#F8F9FA", color = NA),
+    panel.background = element_rect(fill = "#F8F9FA", color = NA),
+    panel.grid.major = element_line(color = "#E0E0E0", linewidth = 0.4),
+    panel.grid.minor = element_blank(),
+    axis.title       = element_text(size = 11, color = "#555555"),
+    axis.text        = element_text(size = 9,  color = "#777777")
+  )
+
+accent <- "#2E86AB"
+
+
+library(patchwork)
+
+
+# Графики препериода
+p1 <- ggplot(df_filtered_preperiod, aes(x = trade_dt, y = r_f)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 0.8) +
+  labs(title = "Безрисковая ставка (r_f)", x = NULL, y = "r_f") +
+  my_theme
+
+p2 <- ggplot(df_filtered_preperiod, aes(x = trade_dt, y = slope)) +
+  geom_point(color = "#E84855", alpha = 0.4, size = 0.8) +
+  labs(title = "Наклон кривой (slope)", x = NULL, y = "slope") +
+  my_theme
+
+p3 <- ggplot(df_filtered_preperiod, aes(x = trade_dt, y = RVI)) +
+  geom_point(color = "#3BB273", alpha = 0.4, size = 0.8) +
+  labs(title = "Индекс волатильности (RVI)", x = NULL, y = "RVI") +
+  my_theme
+
+p4 <- ggplot(df_filtered_preperiod, aes(x = trade_dt, y = imoex)) +
+  geom_point(color = "#F4A261", alpha = 0.4, size = 0.8) +
+  labs(title = "Индекс МосБиржи (imoex)", x = NULL, y = "imoex") +
+  my_theme
+
+p5 <- ggplot(df_filtered_preperiod, aes(x = trade_dt, y = duration)) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 0.8) +
+  labs(title = "Дюрация (duration)", x = NULL, y = "duration") +
+  my_theme
+
+p6 <- df_filtered_preperiod %>%
+  dplyr::filter(liq > 0, !is.na(liq)) %>%
+  ggplot(aes(x = trade_dt, y = log(liq))) +
+  geom_point(color = "#F15BB5", alpha = 0.4, size = 0.8) +
+  labs(title = "Логарифм ликвидности (log(liq))", x = NULL, y = "log(liq)") +
+  my_theme
+
+# Объединение всех графиков в сетку 2x3
+combined_preperiod <- (p1 | p2 | p3) / (p4 | p5 | p6) +
+  plot_annotation(
+    title = "Динамика переменных во времени",
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5,
+                                margin = margin(b = 12))
+    )
+  )
+
+print(combined_preperiod)
+
+
+# Графики постпериода
+p1 <- ggplot(df_filtered_postperiod, aes(x = trade_dt, y = r_f)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 0.8) +
+  labs(title = "Безрисковая ставка (r_f)", x = NULL, y = "r_f") +
+  my_theme
+
+p2 <- ggplot(df_filtered_postperiod, aes(x = trade_dt, y = slope)) +
+  geom_point(color = "#E84855", alpha = 0.4, size = 0.8) +
+  labs(title = "Наклон кривой (slope)", x = NULL, y = "slope") +
+  my_theme
+
+p3 <- ggplot(df_filtered_postperiod, aes(x = trade_dt, y = RVI)) +
+  geom_point(color = "#3BB273", alpha = 0.4, size = 0.8) +
+  labs(title = "Индекс волатильности (RVI)", x = NULL, y = "RVI") +
+  my_theme
+
+p4 <- ggplot(df_filtered_postperiod, aes(x = trade_dt, y = imoex)) +
+  geom_point(color = "#F4A261", alpha = 0.4, size = 0.8) +
+  labs(title = "Индекс МосБиржи (imoex)", x = NULL, y = "imoex") +
+  my_theme
+
+p5 <- ggplot(df_filtered_postperiod, aes(x = trade_dt, y = duration)) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 0.8) +
+  labs(title = "Дюрация (duration)", x = NULL, y = "duration") +
+  my_theme
+
+p6 <- df_filtered_postperiod %>%
+  dplyr::filter(liq > 0, !is.na(liq)) %>%
+  ggplot(aes(x = trade_dt, y = log(liq))) +
+  geom_point(color = "#F15BB5", alpha = 0.4, size = 0.8) +
+  labs(title = "Логарифм ликвидности (log(liq))", x = NULL, y = "log(liq)") +
+  my_theme
+
+# Объединение всех графиков в сетку 2x3
+combined_postperiod <- (p1 | p2 | p3) / (p4 | p5 | p6) +
+  plot_annotation(
+    title = "Динамика переменных во времени",
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5,
+                                margin = margin(b = 12))
+    )
+  )
+
+print(combined_postperiod)
+
+
+
+#### Шаг 5. Постронение моделей на облигациях ####
+
+# Переведем данные в панельный формат
+pdata <- pdata.frame(df_filtered_preperiod, index = c("year_and_name", "t_number"))
+
+
+# Pooled OLS
+pooled <- plm(scs_v2 ~ r_f + slope + RVI + imoex + duration + log(liq)
+              , data = pdata, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(scs_v2 ~ r_f + slope + RVI + imoex + duration + log(liq)
+          , data = pdata, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(scs_v2 ~ r_f + slope + RVI + imoex + duration + log(liq)
+          , data = pdata, model = "random")
+summary(re)
+
+# Тест Хаусмана
+phtest(fe, re)
+x <- phtest(fe, re)
+best_model <- if (x$p.value > 0.05) re else fe
+
+
+
+
+stargazer(pooled, fe, re,
+          type   = "html",
+          out    = "models.html",
+          column.labels = c("Pooled OLS", "Fixed Effects", "Random Effects"),
+          model.names   = FALSE)
+
+
+
+
+
+
+#### Шаг 6. Вычисление ошибок в пост периоде + графики и описательные статистики постпериода ####
+
+# Отберем данные пост периода
+df_filtered_postperiod <- df_filtered[df_filtered$t_number >= left_border,]
+df_filtered_postperiod <- df_filtered_postperiod[df_filtered_postperiod$liq > trade_liq_threshold,]
+
+# Достанем коэффиценты
+best_model$coefficients
+
+alpha <- best_model$coefficients[1]
+r1 <- best_model$coefficients[2]  # заданный коэффициент
+r2 <- best_model$coefficients[3]  # заданный коэффициент
+r3 <- best_model$coefficients[4]  # заданный коэффициент
+r4 <- best_model$coefficients[5]  # заданный коэффициент
+r5 <- best_model$coefficients[6]  # заданный коэффициент
+r6 <- best_model$coefficients[7]  # заданный коэффициент
+
+y_hat <- alpha* + r1*df_filtered_postperiod$r_f + r2*df_filtered_postperiod$slope +
+  r3*df_filtered_postperiod$RVI + r4*df_filtered_postperiod$imoex + 
+  r5*df_filtered_postperiod$duration + r6*log(df_filtered_postperiod$liq)
+
+# Посчитаем scs
+df_filtered_postperiod <- df_filtered_postperiod %>%
+  left_join(sd_by_bond, by = "year_and_name")
+
+# Добавим обновленный scs
+df_filtered_postperiod$scs_v2 <- df_filtered_postperiod$g_spread / df_filtered_postperiod$sd_g_spread
+
+# Считаем ошибки
+errors <- df_filtered_postperiod$scs_v2 - y_hat
+errors_sqrd <- (df_filtered_postperiod$scs_v2 - y_hat)^2
+
+# Смотрим график
+errors_plot <- ggplot(df_filtered_postperiod, aes(x = trade_dt, y = errors)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 0.8) +
+  labs(
+    title = "Динамика спреда (scs_v2)",
+    x     = "Дата торгов",
+    y     = "scs_v2"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14, margin = margin(b = 8)),
+    plot.background  = element_rect(fill = "#F8F9FA", color = NA),
+    panel.background = element_rect(fill = "#F8F9FA", color = NA),
+    panel.grid.major = element_line(color = "#E0E0E0", linewidth = 0.4),
+    panel.grid.minor = element_blank(),
+    axis.title       = element_text(size = 11, color = "#555555"),
+    axis.text        = element_text(size = 9,  color = "#777777"),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+
+names(df_filtered_postperiod)
+# Корреляционная матрица
+cor_data <- df_filtered_postperiod %>%
+  mutate(log_liq = log(liq)) %>%
+  select(r_f, slope, RVI, imoex, duration, log_liq, scs_v2) %>%
+  dplyr::filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+# Корреляционная матрица
+cor_matrix <- cor(cor_data, method = "pearson")
+
+# График
+mtrx_plot_postperiod <- ggcorrplot(
+  cor_matrix,
+  method    = "square",        # квадраты (можно "circle")
+  type      = "lower",         # нижний треугольник
+  lab       = TRUE,            # показывать значения
+  lab_size  = 4,
+  colors    = c("#E84855", "white", "#2E86AB"),  # красный — синий
+  outline.color = "white",
+  ggtheme   = theme_minimal(base_size = 13) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 15, hjust = 0.5),
+      legend.title    = element_text(size = 10),
+      axis.text       = element_text(size = 11)
+    )
+) +
+  labs(title = "Корреляционная матрица")
+
+
+
+
+
+
+
+
+
+
+
+
+# Добавляем ошибки к датафрейму
+df_filtered_postperiod$post_errors <- errors
+df_filtered_postperiod$post_errors_sqrd <- errors_sqrd
+
+# Считаем суммарные ошибки за период по каждой облигации
+sum_errors <- df_filtered_postperiod %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors = sum(post_errors))
+
+sum_errors_sqrd <- df_filtered_postperiod %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors_sqrd = sum(post_errors_sqrd))
+
+
+
+#### Шаг 7. Загрузка и фильтрация данных по компаниям ####
+# Добавим данные по компаниям
+data_company <- read_excel("result_dates7.xlsx")
+
+# Отбираем те же облигации, что и на пост периоде
+dist_year_and_name <- distinct(df_filtered_postperiod_new, year_and_name)
+df_company_filtered <- data_company %>%
+  dplyr::filter(year_and_name %in% dist_year_and_name$year_and_name)
+
+
+# Добавляем остатки
+df_company_filtered$sum_errors <- sum_errors$sum_errors
+df_company_filtered$sum_errors_sqrd <- sum_errors_sqrd$sum_errors_sqrd
+
+plot(df_company_filtered$transp_index, df_company_filtered$sum_errors)
+plot(df_company_filtered$transp_index, df_company_filtered$sum_errors_sqrd)
+
+
+#### Шаг 8. Статистики по компаниям ####
+
+# Просто summary
+names(df_company_filtered)
+summary(df_company_filtered[6:15])
+
+# Смотрим описательные статистики
+library(stargazer)
+library(ggcorrplot)
+stargazer(as.data.frame(df_company_filtered), type = "html", summary = TRUE, out = "stat.html")
+
+
+# Точно чистим ROE и lev
+new_df_company_filtered <- df_company_filtered %>%
+  dplyr::filter(lev > 0, lev< 10, ROE >0 , ROE <0.6)
+
+# Еще раз смотрим на переменные
+stargazer(as.data.frame(new_df_company_filtered), type = "html", summary = TRUE, out = "stat.html")
+
+new_df_company_filtered %>% names()
+# Корреляционная матрица
+cor_data <- new_df_company_filtered %>%
+  mutate(log_assets = log(assets), log_volume = log(volume)) %>%
+  select(transp_index, lev, ROE, log_assets, crrating, log_volume, sum_errors, is_bank) %>%
+  dplyr::filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+# Корреляционная матрица
+cor_matrix <- cor(cor_data, method = "pearson")
+
+# График
+rownames(cor_matrix) <- c(
+  "Индекс прозрачности",
+  "Рычаг",
+  "ROE",
+  "Активы",
+  "Кредитный рейтинг",
+  "Объёма выпуска",
+  "Ошибки",
+  "Банк"
+)
+colnames(cor_matrix) <- rownames(cor_matrix)
+
+mtrx_plot_companies <- ggcorrplot(
+  cor_matrix,
+  method    = "square",        # квадраты (можно "circle")
+  type      = "lower",         # нижний треугольник
+  lab       = TRUE,            # показывать значения
+  lab_size  = 4,
+  colors    = c("#E84855", "white", "#2E86AB"),  # красный — синий
+  outline.color = "white",
+  ggtheme   = theme_minimal(base_size = 13) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 15, hjust = 0.5),
+      legend.title    = element_text(size = 10),
+      axis.text       = element_text(size = 11)
+    )
+) +
+  labs(title = "Корреляционная матрица")
+mtrx_plot_companies
+
+library(svglite)
+ggsave("corrplot.svg", plot = last_plot(), device = "svg", width = 10, height = 8)
+
+
+#### Шаг 9. Графики по компаниям ####
+
+
+p1 <- ggplot(new_df_company_filtered, aes(x = year, y = transp_index)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 2.5) +
+  labs(title = "Индекс прозрачности (transp_index)", x = NULL, y = "transp_index") +
+  my_theme
+
+p2 <- ggplot(new_df_company_filtered, aes(x = year, y = lev)) +
+  geom_point(color = "#E84855", alpha = 0.4, size = 2.5) +
+  labs(title = "Леверидж (lev)", x = NULL, y = "lev") +
+  my_theme
+
+p3 <- ggplot(new_df_company_filtered, aes(x = year, y = ROE)) +
+  geom_point(color = "#3BB273", alpha = 0.4, size = 2.5) +
+  labs(title = "Рентабельность капитала (ROE)", x = NULL, y = "ROE") +
+  my_theme
+
+p4 <- ggplot(new_df_company_filtered, aes(x = year, y = log(assets))) +
+  geom_point(color = "#F4A261", alpha = 0.4, size = 2.5) +
+  labs(title = "Лог активов (log_assets)", x = NULL, y = "log_assets") +
+  my_theme
+
+p5 <- ggplot(new_df_company_filtered, aes(x = year, y = log(volume))) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 2.5) +
+  labs(title = "Лог объёма (log_volume)", x = NULL, y = "log_volume") +
+  my_theme
+
+p6 <- ggplot(new_df_company_filtered, aes(x = year, y = sum_errors)) +
+  geom_point(color = "#F15BB5", alpha = 0.4, size = 2.5) +
+  labs(title = "Сумма ошибок (sum_errors)", x = NULL, y = "sum_errors") +
+  my_theme
+
+# --- Категориальные переменные (столбчатые) ---
+
+p7 <- ggplot(new_df_company_filtered, aes(x = factor(crrating))) +
+  geom_bar(fill = "#2E86AB", alpha = 0.85) +
+  labs(title = "Кредитный рейтинг (crrating)", x = "crrating", y = "Количество") +
+  my_theme
+
+p8 <- ggplot(new_df_company_filtered, aes(x = factor(is_bank))) +
+  geom_bar(fill = "#E84855", alpha = 0.85) +
+  scale_x_discrete(labels = c("0" = "Не банк", "1" = "Банк")) +
+  labs(title = "Банк (is_bank)", x = NULL, y = "Количество") +
+  my_theme
+
+# --- Объединение в сетку ---
+
+combined_df_company <- (p1 | p2 | p3) / (p4 | p5 | p6) / (p7 | p8 | plot_spacer()) +
+  plot_annotation(
+    title = "Динамика переменных компаний",
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5,
+                                margin = margin(b = 12))
+    )
+  )
+
+print(combined_df_company)
+
+
+
+#### Шаг 10. Построение моделей по компаниям ####
+
+# Данные в панельном формате
+pdata3 <- pdata.frame(df_company_filtered, index = c("name", "year"))
+pdata3
+
+
+
+# Строим все модели
+# Pooled OLS
+names(pdata3)
+pooled_step2 <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) +
+                crrating + log(volume) + is_bank, data = pdata3, model = "pooling")
+summary(pooled_step2)
+
+
+# Fixed Effects
+fe_step2 <- plm(sum_errors ~ transp_index + lev + ROE + log(assets) +
+                  crrating + log(volume) + is_bank, data = pdata3, model = "within")
+summary(fe_step2)
+
+
+# Random Effects
+re_step2 <- plm(sum_errors ~   transp_index + lev + ROE + log(assets) +
+                  crrating + log(volume) + is_bank
+                  , data = pdata3, model = "random")
+summary(re_step2)
+
+# Тест Хаусмана
+phtest(fe_step2, re_step2)  
+# Лучше re
+
+
+
+
+
+
+stargazer(pooled_step2, fe_step2, re_step2,
+          type   = "html",
+          out    = "models.html",
+          column.labels = c("Pooled OLS", "Fixed Effects", "Random Effects"),
+          model.names   = FALSE)
+
+
+
+
+
+
+
+
+
+# Новый re
+
+re_step2_v2 <- plm(sum_errors ~ transp_index + ROE + lev + log(assets) + is_bank, data = pdata3, model = "random")
+summary(re_step2_v2)
+
+
+re_step2_v3 <- plm(sum_errors ~  ROE + lev + transp_index, data = pdata3, model = "random")
+summary(re_step2_v3)
+
+
+re_step2_v4 <- plm(sum_errors ~ transp_index + lev  +
+                     log(volume), data = pdata3, model = "random")
+summary(re_step2_v4)
+
+
+#### Описательные статистики всего отдельно ####
+
+## Последняя модель со звездочками
+re_step2_v2 <- plm(sum_errors ~ transp_index + ROE + lev, data = pdata3, model = "random")
+summary(re_step2_v2)
+
+
+## Препериод
+# График препериода
+print(combined_preperiod)
+
+# Описательные статистики препериода
+summary(df_filtered_preperiod[c(6, 13:28)])
+
+names(df_filtered_preperiod)
+custom_stats <- df_filtered_preperiod %>%
+  select(r_f, slope, RVI, imoex, duration, liq, volume, g_spread, scs_v2) %>%
+  summarise(across(everything(), list(
+    mean  = ~mean(., na.rm = TRUE),
+    sd    = ~sd(., na.rm = TRUE),
+    min   = ~min(., na.rm = TRUE),
+    q1    = ~quantile(., 0.25, na.rm = TRUE),
+    q3    = ~quantile(., 0.75, na.rm = TRUE),
+    max   = ~max(., na.rm = TRUE)
+  )))
+
+
+
+
+library(dplyr)
+library(flextable)
+library(officer)
+
+# Считаем статистики
+custom_stats <- df_filtered_preperiod %>%
+  select(r_f, slope, RVI, imoex, duration, liq, volume, g_spread, scs_v2) %>%
+  summarise(across(everything(), list(
+    Среднее  = ~mean(., na.rm = TRUE),
+    Ст.откл  = ~sd(., na.rm = TRUE),
+    Мин      = ~min(., na.rm = TRUE),
+    Q1       = ~quantile(., 0.25, na.rm = TRUE),
+    Q3       = ~quantile(., 0.75, na.rm = TRUE),
+    Макс     = ~max(., na.rm = TRUE)
+  ))) %>%
+  tidyr::pivot_longer(everything(),
+                      names_to  = c("Переменная", "Статистика"),
+                      names_sep = "_") %>%
+  tidyr::pivot_wider(names_from = "Статистика", values_from = "value")
+
+# Создаём красивую таблицу
+ft <- flextable(custom_stats) %>%
+  theme_vanilla() %>%
+  autofit() %>%
+  colformat_double(digits = 3)
+
+# Сохраняем в Word
+doc <- read_docx() %>%
+  body_add_par("Описательные статистики", style = "heading 1") %>%
+  body_add_flextable(ft)
+
+print(doc, target = "descriptive_stats.docx")
+
+
+
+
+library(modelsummary)
+
+datasummary(
+  r_f + slope + RVI + imoex + duration + liq + volume + g_spread +scs_v2 ~ 
+    Mean + SD + Min + P25 + P75 + Max + N,
+  data   = df_filtered_preperiod,
+  output = "descriptive_stats.html"
+)
+?datasummary
+
+
+length(df_filtered_preperiod$scs_v2)
+
+
+
+
+
+stargazer(as.data.frame(custom_stats), type = "html", summary = FALSE, out = "stat2.html")
+
+library(vtable)
+sumtable(df_filtered_preperiod, vars = c("r_f", "slope", "RVI"), out = "latex")
+?sumtable
+
+
+
+# Корреляционная матрица препериода
+mtrx_plot_preperiod
+
+
+
+## Постпериод
+
+# График постпериода
+print(combined_postperiod)
+
+# Описательные статистики препериода
+summary(df_filtered_postperiod[c(6, 13:28)])
+stargazer(as.data.frame(df_filtered_postperiod), type = "text", summary = TRUE, out = "stat.html")
+
+#График ошибок
+errors_plot
+
+# Корреляционная матрица
+mtrx_plot_postperiod
+
+
+
+## Данные по компаниям
+# График данных по компаниям
+print(combined_df_company)
+
+# Описательные статистики препериода
+summary(df_company_filtered[6:15])
+stargazer(as.data.frame(new_df_company_filtered), type = "text", summary = TRUE, out = "stat.html")
+
+# Корреляционная матрица
+mtrx_plot_companies 
+
+#### Загрузка данных ####
+
+# Заранеее выставляем параметры по которым фильтруем
+left_border <- -5
+avg_liq_threshold <- 10000
+trade_liq_threshold <- 10000
+
+
+#Читаем данные
+data_new <- read_excel("result_dates8.xlsx")
+
+
+
+## Отбираем облиги, которые торговались в период выпуска отчетности
+bonds_selected <- data_new[data_new$t_number >= left_border,]
+bonds_selected2 <- bonds_selected[bonds_selected$liq < trade_liq_threshold, ]  
+distinct_isin <- distinct(bonds_selected2, year_and_name)
+distinct_isin
+
+
+# Фильтруем исходный датасет по отобранным облигациям (все наблюдения по ним)
+df_filtered <- data_new %>%
+  dplyr::filter(!year_and_name %in% distinct_isin$year_and_name)
+df_filtered
+
+df_filtered <- df_filtered[df_filtered$liq > trade_liq_threshold,]
+df_filtered <- df_filtered[df_filtered$avg_liq >= avg_liq_threshold, ]
+
+df_filtered <- df_filtered %>%
+  left_join(sd_by_bond, by = "year_and_name")
+
+# Добавим обновленный scs
+df_filtered$scs_v2 <- df_filtered$g_spread / df_filtered$sd_g_spread
+
+library(tsibble)
+df_filtered <- df_filtered %>%
+  arrange(year_and_name, t_number) %>%
+  group_by(year_and_name) %>%
+  mutate(
+    r_f_diff      = difference(r_f),
+    slope_diff    = difference(slope),
+    RVI_diff      = difference(RVI),
+    imoex_ret     = difference(log(imoex)),
+    liq_diff      = difference(log(liq)),
+    duration_diff = difference(duration)
+  ) %>%
+  ungroup()
+
+# Убираем пропуски
+df_filtered <- na.omit(df_filtered)
+
+
+
+# Таблица с итогами
+library(modelsummary)
+library(kableExtra)
+
+
+# Основная таблица статистик
+tbl <- datasummary(
+  (`Безрисковая ставка` = r_f_diff)      +
+    (`Наклон КБД`         = slope_diff)    +
+    (`RVI`                = RVI_diff)      +
+    (`IMOEX`              = imoex_ret)     +
+    (`Дюрация`            = duration_diff) +
+    (`Ликвидность`        = liq_diff)      +
+    (`СКС`                = scs_v2)        ~
+    (`Среднее`   = Mean) +
+    (`Ст. откл.` = SD)   +
+    (`Мин.`      = Min)  +
+    (`1 кв.`     = P25)  +
+    (`3 кв.`     = P75)  +
+    (`Макс.`     = Max),
+  data   = df_filtered,
+  fmt    = 2,
+  output = "data.frame"
+)
+
+# Добавляем столбец с названиями
+tbl <- cbind(Название = c("Безрисковая ставка", "Наклон КБД", "RVI",
+                          "IMOEX", "Дюрация", "Ликвидность", "СКС"), tbl[, -1])
+
+# Красивая таблица в академическом стиле
+tbl %>%
+  kbl(caption = "Таблица 1. Описательные статистики переменных",
+      align    = c("l", "r", "r", "r", "r", "r", "r"),
+      booktabs = TRUE) %>%
+  kable_classic(full_width = FALSE, font_size = 13) %>%
+  row_spec(0, bold = FALSE) %>%
+  footnote(
+    general           = "<i>Примечание: нулевая гипотеза теста Дики-Фуллера: существует единичный корень, ряд нестационарный.</i>",
+    general_title     = "",
+    footnote_as_chunk = TRUE,
+    escape            = FALSE
+  ) %>%
+  save_kable("stats_all_bonds_eveyday.html")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Отбирем данные препериода
+df_filtered_preperiod <- df_filtered[df_filtered$t_number < left_border,]
+# Отбирем торгуемые облигации
+df_filtered_preperiod <- df_filtered_preperiod[df_filtered_preperiod$liq > trade_liq_threshold,]
+
+#### Фильтруем данные
+# Отбираем более-менее ликвидные облигации (средняя ликвидность более 10000)
+data_pre_period <- data_pre_period[data_pre_period$avg_liq >= avg_liq_threshold, ]
+
+
+#### Шаг 2. Формируем SCS ####
+
+# Посчитаем стандартное отклонение кредитного спреда
+sd_by_bond <- df_filtered_preperiod %>%
+  dplyr::filter(t_number >= -150, t_number <= -6) %>%
+  group_by(year_and_name) %>%
+  summarise(sd_g_spread = sd(g_spread, na.rm = TRUE))
+sd_by_bond
+
+df_filtered_preperiod <- df_filtered_preperiod %>%
+  left_join(sd_by_bond, by = "year_and_name")
+
+# Добавим обновленный scs
+df_filtered_preperiod$scs_v2 <- df_filtered_preperiod$g_spread / df_filtered_preperiod$sd_g_spread
+
+
+
+
+#### Переход к 1 разностям ####
+
+#Проверка, что ряды не стационарны
+
+# Добавим значения в разностях на всякий случай
+library(tsibble)
+df_filtered_preperiod_new <- df_filtered_preperiod %>%
+  arrange(year_and_name, t_number) %>%
+  group_by(year_and_name) %>%
+  mutate(
+    r_f_diff      = difference(r_f),
+    slope_diff    = difference(slope),
+    RVI_diff      = difference(RVI),
+    imoex_ret     = difference(log(imoex)),
+    liq_diff      = difference(log(liq)),
+    duration_diff = difference(duration)
+  ) %>%
+  ungroup()
+
+# Убираем пропуски
+df_filtered_preperiod_new <- na.omit(df_filtered_preperiod_new)
+
+
+#Смотрим стационарность
+
+# Перейдем в панельные данные
+pdata_test2 <- pdata.frame(df_filtered_preperiod_new, index = c("year_and_name", "t_number"))
+# Тест Ima, Pesaran and Shin (IPS) — для панельных данных
+purtest(log(pdata_test2$liq), test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$r_f, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$slope, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$RVI, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$imoex, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$duration, test = "ips", exo = "intercept", lags = "AIC")
+
+# Оставляем только ликвидность, RVI не стационарен, несмотря на тесты
+# Смотрим стационарность первых разностей
+purtest(pdata_test2$r_f_diff, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$slope_diff, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$RVI_diff, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$imoex_ret, test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$duration_diff, test = "ips", exo = "intercept", lags = "AIC")
+purtest(log(pdata_test2$liq), test = "ips", exo = "intercept", lags = "AIC")
+purtest(pdata_test2$scs_v2, test = "ips", exo = "intercept", lags = "AIC")
+# Теперь все стационарно для панельных рядов
+
+
+#### Графики стационарных рядов ####
+
+# Корреляционная матрица
+cor_data <- df_filtered_preperiod_new %>%
+  mutate(log_liq = log(liq)) %>%
+  select(r_f_diff, slope_diff, RVI_diff, imoex_ret, duration_diff, log_liq, scs_v2) %>%
+  dplyr::filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+# Корреляционная матрица
+cor_matrix_preperiod <- cor(cor_data, method = "pearson")
+
+rownames(cor_matrix_preperiod) <- c(
+  "Безрисковая ставка",
+  "Наклон КБД",
+  "RVI",
+  "IMOEX",
+  "Дюрация",
+  "Ликвидность",
+  "СКС"
+)
+colnames(cor_matrix_preperiod) <- rownames(cor_matrix_preperiod)
+
+# График
+mtrx_plot_preperiod <- ggcorrplot(
+  cor_matrix_preperiod,
+  method    = "square",        # квадраты (можно "circle")
+  type      = "lower",         # нижний треугольник
+  lab       = TRUE,            # показывать значения
+  lab_size  = 4,
+  colors    = c("#E84855", "white", "#2E86AB"),  # красный — синий
+  outline.color = "white",
+  ggtheme   = theme_minimal(base_size = 13) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 15, hjust = 0.5),
+      legend.title    = element_text(size = 10),
+      axis.text       = element_text(size = 11)
+    )
+) +
+  labs(title = "Корреляционная матрица")
+mtrx_plot_preperiod
+ggsave("corrplot_preperiod.svg", plot = last_plot(), device = "svg", width = 10, height = 8)
+
+
+
+
+# Графики препериода
+p1 <- ggplot(df_filtered_preperiod_new, aes(x = trade_dt, y = r_f_diff)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 0.8) +
+  labs(title = "Безрисковая ставка", x = NULL, y = "Безрисковая ставка") +
+  my_theme
+
+p2 <- ggplot(df_filtered_preperiod_new, aes(x = trade_dt, y = slope_diff)) +
+  geom_point(color = "#E84855", alpha = 0.4, size = 0.8) +
+  labs(title = "Наклон КБД", x = NULL, y = "Наклон КБД") +
+  my_theme
+
+p3 <- ggplot(df_filtered_preperiod_new, aes(x = trade_dt, y = RVI_diff)) +
+  geom_point(color = "#3BB273", alpha = 0.4, size = 0.8) +
+  labs(title = "RVI", x = NULL, y = "RVI") +
+  my_theme
+
+p4 <- ggplot(df_filtered_preperiod_new, aes(x = trade_dt, y = imoex_ret)) +
+  geom_point(color = "#F4A261", alpha = 0.4, size = 0.8) +
+  labs(title = "IMOEX", x = NULL, y = "IMOEX") +
+  my_theme
+
+p5 <- ggplot(df_filtered_preperiod_new, aes(x = trade_dt, y = duration_diff)) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 0.8) +
+  labs(title = "Дюрация", x = NULL, y = "Дюрация") +
+  my_theme
+
+p6 <- df_filtered_preperiod_new %>%
+  dplyr::filter(liq > 0, !is.na(liq)) %>%
+  ggplot(aes(x = trade_dt, y = log(liq))) +
+  geom_point(color = "#F15BB5", alpha = 0.4, size = 0.8) +
+  labs(title = "Ликвидность", x = NULL, y = "Ликвидность") +
+  my_theme
+
+p7 <- ggplot(df_filtered_preperiod_new, aes(x = trade_dt, y = scs_v2)) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 0.8) +
+  labs(title = "СКС", x = NULL, y = "СКС") +
+  my_theme
+
+
+combined_preperiod <- (p1 | p2 | p3) / (p4 | p5 | p6) / (p7 | plot_spacer() | plot_spacer()) +
+  plot_annotation(
+    title = "Динамика переменных во времени",
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5,
+                                margin = margin(b = 12))
+    )
+  )
+
+print(combined_preperiod)
+ggsave("Графики препериода.svg", plot = last_plot(), device = "svg", width = 10, height = 8)
+
+
+# Таблица с итогами
+library(modelsummary)
+library(kableExtra)
+
+
+# Основная таблица статистик
+tbl <- datasummary(
+  (`Безрисковая ставка` = r_f_diff)      +
+    (`Наклон КБД`         = slope_diff)    +
+    (`RVI`                = RVI_diff)      +
+    (`IMOEX`              = imoex_ret)     +
+    (`Дюрация`            = duration_diff) +
+    (`Ликвидность`        = liq_diff)      +
+    (`СКС`                = scs_v2)        ~
+    (`Среднее`   = Mean) +
+    (`Ст. откл.` = SD)   +
+    (`Мин.`      = Min)  +
+    (`1 кв.`     = P25)  +
+    (`3 кв.`     = P75)  +
+    (`Макс.`     = Max),
+  data   = df_filtered_preperiod_new,
+  fmt    = 2,
+  output = "data.frame"
+)
+
+# Добавляем столбец с названиями
+tbl <- cbind(Название = c("Безрисковая ставка", "Наклон КБД", "RVI",
+                          "IMOEX", "Дюрация", "Ликвидность", "СКС"), tbl[, -1])
+
+# Красивая таблица в академическом стиле
+tbl %>%
+  kbl(caption = "Таблица 1. Описательные статистики переменных",
+      align    = c("l", "r", "r", "r", "r", "r", "r"),
+      booktabs = TRUE) %>%
+  kable_classic(full_width = FALSE, font_size = 13) %>%
+  row_spec(0, bold = FALSE) %>%
+  footnote(
+    general           = "<i>Примечание: нулевая гипотеза теста Дики-Фуллера: существует единичный корень, ряд нестационарный.</i>",
+    general_title     = "",
+    footnote_as_chunk = TRUE,
+    escape            = FALSE
+  ) %>%
+  save_kable("stats_preperiod.html")
+
+
+#### Строим модели на стационарных рядах ####
+
+
+# Pooled OLS
+pooled <- plm(scs_v2 ~ r_f_diff + slope_diff + RVI_diff + imoex_ret + duration_diff + log(liq)
+              , data = pdata_test2, model = "pooling")
+summary(pooled)
+
+# Fixed Effects
+fe <- plm(scs_v2 ~ r_f_diff + slope_diff + RVI_diff + imoex_ret + duration_diff + log(liq)
+          , data = pdata_test2, model = "within")
+summary(fe)
+
+# Random Effects
+re <- plm(scs_v2 ~ r_f_diff + slope_diff + RVI_diff + imoex_ret + duration_diff + log(liq)
+          , data = pdata_test2, model = "random")
+summary(re)
+
+
+#Pooled vs FE/RE (тест Бройша-Пагана)
+plmtest(pooled, type = "bp")
+
+
+# Тест Хаусмана
+phtest(fe, re)
+x <- phtest(fe, re)
+best_model <- if (x$p.value > 0.05) re else fe
+# Лучше всего подходит FE
+
+
+# Тест Хаусмана
+phtest(fe, re)  
+# Лучше re
+
+plmtest(pooled, type = "bp")
+# Лучше просто OLS
+
+
+pFtest(fe, pooled)
+
+
+
+
+# Fixed Effects
+fe2 <- plm(scs_v2 ~ r_f_diff + slope_diff + RVI_diff + imoex_ret  + log(liq)
+          , data = pdata_test2, model = "within")
+summary(fe2)
+
+
+
+
+
+#### Свод таблиц препериода ####
+
+
+library(modelsummary)
+library(kableExtra)
+
+modelsummary(
+  list("Pooled OLS"     = pooled,
+       "Фикс. эффекты" = fe,
+       "Случ. эффекты" = re),
+  fmt         = 2,
+  stars       = c("*" = 0.1, "**" = 0.05, "***" = 0.01),
+  gof_map     = c("nobs", "r.squared"),
+  coef_rename = c(
+    "r_f_diff"      = "Безрисковая ставка",
+    "slope_diff"    = "Наклон КБД",
+    "RVI_diff"      = "RVI",
+    "imoex_ret"     = "IMOEX",
+    "duration_diff" = "Дюрация",
+    "log(liq)"      = "Ликвидность"
+  ),
+  output = "kableExtra"
+) %>%
+  kable_classic(full_width = FALSE, font_size = 13) %>%
+  add_header_above(c(" " = 1, "Модели на препериоде" = 3), bold = TRUE) %>%
+  row_spec(0, bold = TRUE) %>%
+  footnote(
+    general           = "<i style='font-family: Times New Roman;'>Примечание: в скобках указаны стандартные ошибки.</i>",
+    general_title     = "",
+    footnote_as_chunk = TRUE,
+    escape            = FALSE
+  ) %>%
+  kable_styling(font_size = 13,
+                html_font = "Times New Roman") %>%
+  save_kable("models_comparison.html")
+
+
+
+#### Достаем коэфиценты и смотрим пост период ####
+best_model$coefficients
+
+#alpha <- best_model$coefficients[1]
+r1 <- best_model$coefficients[1]  # заданный коэффициент
+r2 <- best_model$coefficients[2]  # заданный коэффициент
+r3 <- best_model$coefficients[3]  # заданный коэффициент
+r4 <- best_model$coefficients[4]  # заданный коэффициент
+r5 <- best_model$coefficients[5]  # заданный коэффициент
+r6 <- best_model$coefficients[6]  # заданный коэффициент
+
+
+# Загрузим пост период
+# Отберем данные пост периода
+df_filtered_postperiod <- df_filtered_new[df_filtered_new$t_number >= left_border,]
+df_filtered_postperiod <- df_filtered_postperiod[df_filtered_postperiod$liq > trade_liq_threshold,]
+
+
+# Добавим значения в разностях
+library(tsibble)
+df_filtered_new <- df_filtered %>%
+  arrange(year_and_name, t_number) %>%
+  group_by(year_and_name) %>%
+  mutate(
+    r_f_diff      = difference(r_f),
+    slope_diff    = difference(slope),
+    RVI_diff      = difference(RVI),
+    imoex_ret     = difference(log(imoex)),
+    liq_diff      = difference(log(liq)),
+    duration_diff = difference(duration)
+  ) %>%
+  ungroup()
+
+
+
+
+# Убираем пропуски
+df_filtered_postperiod_new <- na.omit(df_filtered_postperiod)
+
+
+# Посчитаем scs
+df_filtered_postperiod_new <- df_filtered_postperiod_new %>%
+  left_join(sd_by_bond, by = "year_and_name")
+
+# Добавим обновленный scs
+df_filtered_postperiod_new$scs_v2 <- df_filtered_postperiod_new$g_spread / df_filtered_postperiod_new$sd_g_spread
+
+
+
+# Считаем y с крышкой
+df_filtered_postperiod_new$y_hat <-  r1*df_filtered_postperiod_new$r_f_diff + r2*df_filtered_postperiod_new$slope_diff +
+  r3*df_filtered_postperiod_new$RVI_diff + r4*df_filtered_postperiod_new$imoex_ret + 
+  r5*df_filtered_postperiod_new$duration_diff + r6*log(df_filtered_postperiod_new$liq)
+
+
+
+
+
+# Считаем ошибки
+df_filtered_postperiod_new$errors <- df_filtered_postperiod_new$scs_v2 - df_filtered_postperiod_new$y_hat
+plot(df_filtered_postperiod_new$errors)
+
+
+
+# Считаем суммарные ошибки за период по каждой облигации
+sum_errors <- df_filtered_postperiod_new %>%
+  group_by(year_and_name) %>%
+  summarise(sum_errors = sum(errors))
+
+sum_errors
+
+
+#### Графики по пост периоду #### 
+
+# Графики постпериода
+p1 <- ggplot(df_filtered_postperiod_new, aes(x = trade_dt, y = r_f_diff)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 0.8) +
+  labs(title = "Безрисковая ставка", x = NULL, y = "Безрисковая ставка") +
+  my_theme
+
+p2 <- ggplot(df_filtered_postperiod_new, aes(x = trade_dt, y = slope_diff)) +
+  geom_point(color = "#E84855", alpha = 0.4, size = 0.8) +
+  labs(title = "Наклон КБД", x = NULL, y = "Наклон КБД") +
+  my_theme
+
+p3 <- ggplot(df_filtered_postperiod_new, aes(x = trade_dt, y = RVI_diff)) +
+  geom_point(color = "#3BB273", alpha = 0.4, size = 0.8) +
+  labs(title = "RVI", x = NULL, y = "RVI") +
+  my_theme
+
+p4 <- ggplot(df_filtered_postperiod_new, aes(x = trade_dt, y = imoex_ret)) +
+  geom_point(color = "#F4A261", alpha = 0.4, size = 0.8) +
+  labs(title = "IMOEX", x = NULL, y = "IMOEX") +
+  my_theme
+
+p5 <- ggplot(df_filtered_postperiod_new, aes(x = trade_dt, y = duration_diff)) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 0.8) +
+  labs(title = "Дюрация", x = NULL, y = "Дюрация") +
+  my_theme
+
+p6 <- df_filtered_postperiod_new %>%
+  dplyr::filter(liq > 0, !is.na(liq)) %>%
+  ggplot(aes(x = trade_dt, y = log(liq))) +
+  geom_point(color = "#F15BB5", alpha = 0.4, size = 0.8) +
+  labs(title = "Ликвидность", x = NULL, y = "Ликвидность") +
+  my_theme
+
+p7 <- ggplot(df_filtered_postperiod_new, aes(x = trade_dt, y = scs_v2)) +
+  geom_point(color = "#9B5DE5", alpha = 0.4, size = 0.8) +
+  labs(title = "СКС", x = NULL, y = "СКС") +
+  my_theme
+
+
+combined_preperiod <- (p1 | p2 | p3) / (p4 | p5 | p6) / (p7 | plot_spacer() | plot_spacer()) +
+  plot_annotation(
+    title = "Динамика переменных во времени",
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5,
+                                margin = margin(b = 12))
+    )
+  )
+
+print(combined_preperiod)
+ggsave("Графики постпериода.svg", plot = last_plot(), device = "svg", width = 10, height = 8)
+
+
+
+
+# График корреялционной матриц
+cor_data <- df_filtered_postperiod_new %>%
+  mutate(log_liq = log(liq)) %>%
+  select(r_f_diff, slope_diff, RVI_diff, imoex_ret, duration_diff, log_liq, scs_v2) %>%
+  dplyr::filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+# Корреляционная матрица
+cor_matrix_postperiod <- cor(cor_data, method = "pearson")
+
+rownames(cor_matrix_postperiod) <- c(
+  "Безрисковая ставка",
+  "Наклон КБД",
+  "RVI",
+  "IMOEX",
+  "Дюрация",
+  "Ликвидность",
+  "СКС"
+)
+colnames(cor_matrix_postperiod) <- rownames(cor_matrix_postperiod)
+
+# График
+mtrx_plot_postperiod <- ggcorrplot(
+  cor_matrix_postperiod,
+  method    = "square",        # квадраты (можно "circle")
+  type      = "lower",         # нижний треугольник
+  lab       = TRUE,            # показывать значения
+  lab_size  = 4,
+  colors    = c("#E84855", "white", "#2E86AB"),  # красный — синий
+  outline.color = "white",
+  ggtheme   = theme_minimal(base_size = 13) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 15, hjust = 0.5),
+      legend.title    = element_text(size = 10),
+      axis.text       = element_text(size = 11)
+    )
+) +
+  labs(title = "Корреляционная матрица")
+mtrx_plot_postperiod
+ggsave("corrplot_postperiod.svg", plot = last_plot(), device = "svg", width = 10, height = 8)
+
+
+# Сводная информация по пост периоду
+library(modelsummary)
+library(kableExtra)
+
+
+# Основная таблица статистик
+tbl <- datasummary(
+  (`Безрисковая ставка` = r_f_diff)      +
+    (`Наклон КБД`         = slope_diff)    +
+    (`RVI`                = RVI_diff)      +
+    (`IMOEX`              = imoex_ret)     +
+    (`Дюрация`            = duration_diff) +
+    (`Ликвидность`        = liq_diff)      +
+    (`СКС`                = scs_v2)        ~
+    (`Среднее`   = Mean) +
+    (`Ст. откл.` = SD)   +
+    (`Мин.`      = Min)  +
+    (`1 кв.`     = P25)  +
+    (`3 кв.`     = P75)  +
+    (`Макс.`     = Max),
+  data   = df_filtered_postperiod_new,
+  fmt    = 2,
+  output = "data.frame"
+)
+
+# Добавляем столбец с названиями
+tbl <- cbind(Название = c("Безрисковая ставка", "Наклон КБД", "RVI",
+                          "IMOEX", "Дюрация", "Ликвидность", "СКС"), tbl[, -1])
+
+# Красивая таблица в академическом стиле
+tbl %>%
+  kbl(caption = "Таблица 1. Описательные статистики переменных",
+      align    = c("l", "r", "r", "r", "r", "r", "r"),
+      booktabs = TRUE) %>%
+  kable_classic(full_width = FALSE, font_size = 13) %>%
+  row_spec(0, bold = FALSE) %>%
+  footnote(
+    general           = "<i>Примечание: нулевая гипотеза теста Дики-Фуллера: существует единичный корень, ряд нестационарный.</i>",
+    general_title     = "",
+    footnote_as_chunk = TRUE,
+    escape            = FALSE
+  ) %>%
+  save_kable("stats_postperiod.html")
+
+
+#### Загрузка и фильтрация данных по компаниям ####
+# Добавим данные по компаниям
+data_company <- read_excel("result_dates7.xlsx")
+
+# Отбираем те же облигации, что и на пост периоде
+dist_year_and_name <- distinct(df_filtered_postperiod_new, year_and_name)
+df_company_filtered <- data_company %>%
+  dplyr::filter(year_and_name %in% dist_year_and_name$year_and_name)
+
+
+# Добавляем остатки
+# Join вместо прямого присвоения (исправление прошлой проблемы)
+df_company_filtered <- df_company_filtered %>%
+  left_join(sum_errors, by = "year_and_name")
+
+
+#### Графики индекса прозрачности ####
+
+plot(new_df_company_filtered$transp_index, new_df_company_filtered$sum_errors)
+ggplot(new_df_company_filtered, aes(x = transp_index, y = sum_errors, color = factor(year))) +
+  geom_point(alpha = 0.6, size = 2) +
+  labs(
+    title  = "Индекс прозрачности и сумма ошибок",
+    x      = "Индекс прозрачности",
+    y      = "Сумма ошибок",
+    color  = "Год"
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14, margin = margin(b = 8)),
+    plot.background  = element_rect(fill = "#F8F9FA", color = NA),
+    panel.background = element_rect(fill = "#F8F9FA", color = NA),
+    panel.grid.major = element_line(color = "#E0E0E0", linewidth = 0.4),
+    panel.grid.minor = element_blank(),
+    axis.title       = element_text(size = 11, color = "#555555"),
+    axis.text        = element_text(size = 9,  color = "#777777"),
+    legend.position  = "right"
+  )
+
+
+ggplot(new_df_company_filtered, aes(x = factor(year), y = transp_index)) +
+  geom_point(color = "#2E86AB", alpha = 0.4, size = 2) +
+  labs(
+    title = "Динамика индекса прозрачности по годам",
+    x     = "Год",
+    y     = "Индекс прозрачности"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14, margin = margin(b = 8)),
+    plot.background  = element_rect(fill = "#F8F9FA", color = NA),
+    panel.background = element_rect(fill = "#F8F9FA", color = NA),
+    panel.grid.major = element_line(color = "#E0E0E0", linewidth = 0.4),
+    panel.grid.minor = element_blank(),
+    axis.title       = element_text(size = 11, color = "#555555"),
+    axis.text        = element_text(size = 9,  color = "#777777")
+  )
+ggsave("Индекс прозрачности и ошибки.svg", plot = last_plot(), device = "svg", width = 10, height = 8)
+
+
+
+#### Шаг 8. Статистики по компаниям ####
+
+new_df_company_filtered$lev %>%  plot()
+# Точно чистим ROE и lev
+new_df_company_filtered <- df_company_filtered %>%
+  dplyr::filter(lev > 0 , lev< 18, ROA > -0.2)
+# Сильная чистка, надо экспериментировать
+
+
+new_df_company_filtered_hard <- df_company_filtered %>%
+  dplyr::filter(lev > 0 , lev< 12, ROE > 0 , ROE <0.55)
+
+new_df_company_filtered_strage <- df_company_filtered %>%
+  dplyr::filter(lev > 0 , lev< 18, crrating == 21)
+
+
+plot(new_df_company_filtered$ROA, new_df_company_filtered$sum_errors)
+
+
+# Отбор облигаций, которые встречаются хотя в течение 2 лет
+  df_filtered_plus2 <- new_df_company_filtered %>%
+    group_by(name) %>%
+    dplyr::filter(length(unique(year)) >= 2) %>%
+    ungroup()
+
+#### Описательне статистики данных по компаниям ####
+  
+  # Таблица с итогами
+  library(modelsummary)
+  library(kableExtra)
+  
+  names(new_df_company_filtered)
+  
+  # Основная таблица статистик
+  tbl <- datasummary(
+    (`Индекс прозрачности` = transp_index)      +
+      (`Рычаг`         = lev)    +
+      (`ROA`                = ROA)      +
+      (`Активы`              = log(assets))     +
+      (`Кр. рейтинг`            = crrating) +
+      (`ИСКС`        = sum_errors)  
+            ~
+      (`Среднее`   = Mean) +
+      (`Ст. откл.` = SD)   +
+      (`Мин.`      = Min)  +
+      (`1 кв.`     = P25)  +
+      (`3 кв.`     = P75)  +
+      (`Макс.`     = Max),
+    data   = new_df_company_filtered,
+    fmt    = 2,
+    output = "data.frame"
+  )
+  
+  # Добавляем столбец с названиями
+  tbl <- cbind(Название = c("Индекс прозрачности", "Рычаг", "ROA",
+                            "Активы", "Кр. рейтинг", "ИСКС"), tbl[, -1])
+  
+  # Красивая таблица в академическом стиле
+  tbl %>%
+    kbl(caption = "Таблица 2. Описательные статистики ежегодных данных по компаниям",
+        align    = c("l", "r", "r", "r", "r", "r", "r"),
+        booktabs = TRUE) %>%
+    kable_classic(full_width = FALSE, font_size = 13) %>%
+    row_spec(0, bold = FALSE) %>%
+    footnote(
+      general           = "<i>Примечание: нулевая гипотеза теста Дики-Фуллера: существует единичный корень, ряд нестационарный.</i>",
+      general_title     = "",
+      footnote_as_chunk = TRUE,
+      escape            = FALSE
+    ) %>%
+    save_kable("stats_companies.html")
+  
+  
+  
+  
+
+#### Построение моделей ####
+
+# Данные в панельном формате
+pdata4 <- pdata.frame(new_df_company_filtered, index = c("name", "year"))
+pdata4 %>% names()
+
+
+# Строим все модели
+# Pooled OLS
+pooled_step2 <- plm(sum_errors ~ transp_index + lev + ROA + log(assets) +
+                      crrating  , data = pdata4, model = "pooling")
+summary(pooled_step2)
+
+
+
+# Fixed Effects
+fe_step2 <- plm(sum_errors ~ transp_index + lev + ROA + log(assets) +
+                  crrating  , data = pdata4, model = "within")
+summary(fe_step2)
+
+
+# Random Effects
+re_step2 <- plm(sum_errors ~   transp_index + lev + ROA + log(assets) +
+                  crrating 
+                , data = pdata4, model = "random")
+summary(re_step2)
+
+# Тест Хаусмана
+phtest(fe_step2, re_step2)  
+# Лучше re
+
+plmtest(pooled_step2, type = "bp")
+# Лучше просто OLS
+
+
+pFtest(fe_step2, pooled_step2)
+
+
+
+#### Делаем выдачу моделей по всем облигациям ####
+
+library(modelsummary)
+library(kableExtra)
+pooled_step2
+modelsummary(
+  list("Pooled OLS"     = pooled_step2,
+       "Фикс. эффекты" = fe_step2,
+       "Случ. эффекты" = re_step2),
+  fmt         = 2,
+  stars       = c("*" = 0.1, "**" = 0.05, "***" = 0.01),
+  gof_map     = c("nobs", "r.squared"),
+  coef_rename = c(
+    "transp_index"      = "Индекс прозрачности",
+    "lev"    = "Рычаг",
+    "ROA"      = "ROA",
+    "log(assets)"     = "Активы",
+    "crrating" = "Кр. рейтинг"
+  ),
+  output = "kableExtra"
+) %>%
+  kable_classic(full_width = FALSE, font_size = 13) %>%
+  add_header_above(c(" " = 1, "Модели по компаниям" = 3), bold = TRUE) %>%
+  row_spec(0, bold = TRUE) %>%
+  footnote(
+    general           = "<i style='font-family: Times New Roman;'>Примечание: в скобках указаны стандартные ошибки.</i>",
+    general_title     = "",
+    footnote_as_chunk = TRUE,
+    escape            = FALSE
+  ) %>%
+  kable_styling(font_size = 13,
+                html_font = "Times New Roman") %>%
+  save_kable("models_company_comparison.html")
+
+
+
+
+
+#### Модели с переходом к репрезентативной облигации (наиболее ликвидная) ####
+
+new_df_company_filtered_agg <- new_df_company_filtered %>%
+   group_by(year_and_name) %>%
+   mutate(liq = sum(liq)) %>%
+   ungroup() %>%
+  distinct(year_and_name, .keep_all = TRUE)
+  
+# ── 3. Отбор наиболее ликвидной облигации на каждого эмитента за каждый год ──
+most_liquid_bonds <- new_df_company_filtered_agg %>%
+  group_by(emitant, year) %>%
+  slice_max(order_by = liq, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  arrange(emitant, year)
+
+  plot(most_liquid_bonds$transp_index, most_liquid_bonds$sum_errors) 
+
+
+  
+  
+  # Данные в панельном формате
+  pdata5 <- pdata.frame(most_liquid_bonds, index = c("name", "year"))
+  pdata5 %>% names()
+  
+  
+  
+  # Строим все модели
+  # Pooled OLS
+  pooled_step2 <- plm(sum_errors ~ transp_index + lev + ROA + log(assets) +
+                        crrating  , data = pdata5, model = "pooling")
+  summary(pooled_step2)
+  
+  
+  # Fixed Effects
+  fe_step2 <- plm(sum_errors ~ transp_index + lev + ROA + log(assets) +
+                    crrating  , data = pdata5, model = "within")
+  summary(fe_step2)
+  
+  
+  # Random Effects
+  re_step2 <- plm(sum_errors ~   transp_index + lev + ROA + log(assets) +
+                    crrating
+                  , data = pdata5, model = "random")
+  summary(re_step2)
+  
+  # Тест Хаусмана
+  phtest(fe_step2, re_step2)  
+  # Лучше re
+  
+  plmtest(pooled_step2, type = "bp")
+  # Лучше просто OLS
+  
+  pFtest(fe_step2, pooled_step2)
+  # Лучше пул
+  
+  
+  #### Делаем выдачу моделей по всем облигациям репрезентативные ####
+  
+  library(modelsummary)
+  library(kableExtra)
+  pooled_step2
+  modelsummary(
+    list("Pooled OLS"     = pooled_step2,
+         "Фикс. эффекты" = fe_step2,
+         "Случ. эффекты" = re_step2),
+    fmt         = 2,
+    stars       = c("*" = 0.1, "**" = 0.05, "***" = 0.01),
+    gof_map     = c("nobs", "r.squared"),
+    coef_rename = c(
+      "transp_index"      = "Индекс прозрачности",
+      "lev"    = "Рычаг",
+      "ROA"      = "ROA",
+      "log(assets)"     = "Активы",
+      "crrating" = "Кр. рейтинг"
+    ),
+    output = "kableExtra"
+  ) %>%
+    kable_classic(full_width = FALSE, font_size = 13) %>%
+    add_header_above(c(" " = 1, "Модели по компаниям" = 3), bold = TRUE) %>%
+    row_spec(0, bold = TRUE) %>%
+    footnote(
+      general           = "<i style='font-family: Times New Roman;'>Примечание: в скобках указаны стандартные ошибки.</i>",
+      general_title     = "",
+      footnote_as_chunk = TRUE,
+      escape            = FALSE
+    ) %>%
+    kable_styling(font_size = 13,
+                  html_font = "Times New Roman") %>%
+    save_kable("models_company_representative_comparison.html")
+  
+  
+  
+  
+  
+  
+  #### Модели средневзвешенного кредитного спреда ####
+    weighted_errors <- new_df_company_filtered %>%
+    group_by(emitant, year) %>%
+    summarise(
+      weighted_sum_errors  = weighted.mean(sum_errors,   w = volume, na.rm = TRUE),
+      weighted_transp_index = weighted.mean(transp_index, w = volume, na.rm = TRUE),
+      weighted_lev         = weighted.mean(lev,           w = volume, na.rm = TRUE),
+      weighted_ROE         = weighted.mean(ROE,           w = volume, na.rm = TRUE),
+      weighted_assets      = weighted.mean(assets,        w = volume, na.rm = TRUE),
+      weighted_ROA      = weighted.mean(ROA,        w = volume, na.rm = TRUE),
+      weighted_crrating    = weighted.mean(crrating,      w = volume, na.rm = TRUE),
+      n_bonds      = n(),                        # количество облигаций в группе
+      total_volume = sum(volume, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(emitant, year)
+  weighted_errors
+  
+  
+  plot(weighted_errors$weighted_transp_index, weighted_errors$weighted_sum_errors) 
+  
+  
+  
+  
+  # Данные в панельном формате
+  pdata6 <- pdata.frame(weighted_errors, index = c("emitant", "year"))
+  pdata6 %>% names()
+  
+  
+  
+  # Строим все модели
+  # Pooled OLS
+  pooled_step2 <- plm(weighted_sum_errors ~ weighted_transp_index + weighted_lev + weighted_ROA + log(weighted_assets) +
+                        weighted_crrating , data = pdata6, model = "pooling")
+  summary(pooled_step2)
+  
+  
+  # Fixed Effects
+  fe_step2 <- plm(weighted_sum_errors ~ weighted_transp_index + weighted_lev + weighted_ROA + log(weighted_assets) +
+                    weighted_crrating , data = pdata6, model = "within")
+  summary(fe_step2)
+  
+  
+  # Random Effects
+  re_step2 <- plm(weighted_sum_errors ~ weighted_transp_index + weighted_lev + weighted_ROA + log(weighted_assets) +
+                    weighted_crrating 
+                  , data = pdata6, model = "random")
+  summary(re_step2)
+  
+  # Тест Хаусмана
+  phtest(fe_step2, re_step2)  
+  # Лучше re
+  
+  plmtest(pooled_step2, type = "bp")
+  # Лучше просто OLS
+  
+  #### Делаем выдачу моделей по всем облигациям средневзвешенные ####
+  
+  library(modelsummary)
+  library(kableExtra)
+  pooled_step2
+  modelsummary(
+    list("Pooled OLS"     = pooled_step2,
+         "Фикс. эффекты" = fe_step2,
+         "Случ. эффекты" = re_step2),
+    fmt         = 2,
+    stars       = c("*" = 0.1, "**" = 0.05, "***" = 0.01),
+    gof_map     = c("nobs", "r.squared"),
+    coef_rename = c(
+      "weighted_transp_index"      = "Индекс прозрачности",
+      "weighted_lev"    = "Рычаг",
+      "weighted_ROA"      = "ROA",
+      "log(weighted_assets)"     = "Активы",
+      "weighted_crrating" = "Кр. рейтинг"
+    ),
+    output = "kableExtra"
+  ) %>%
+    kable_classic(full_width = FALSE, font_size = 13) %>%
+    add_header_above(c(" " = 1, "Модели по компаниям" = 3), bold = TRUE) %>%
+    row_spec(0, bold = TRUE) %>%
+    footnote(
+      general           = "<i style='font-family: Times New Roman;'>Примечание: в скобках указаны стандартные ошибки.</i>",
+      general_title     = "",
+      footnote_as_chunk = TRUE,
+      escape            = FALSE
+    ) %>%
+    kable_styling(font_size = 13,
+                  html_font = "Times New Roman") %>%
+    save_kable("models_company_weightened_comparison.html")
+  
+  
+  
+  
+
+  
+
+
