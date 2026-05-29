@@ -322,7 +322,7 @@ summary(fe_upd)
 plot(data_company$transp_index, data_company$sum_errors)
 # По графику более-менее нормально
 
-# Для панельных данных — через demean (это ии я хз, я график посмотрел и мне норм)
+# Для панельных данных — через demean
 library(dplyr)
 df_demeaned <- pdata2 %>%
   group_by(name) %>%
@@ -394,7 +394,7 @@ re_final_test <- plm(sum_errors ~ transp_index
            , data = pdata2_test, model = "random")
 summary(re_final_test)
 
-#### Проверяем ии ####
+#### Проверяем ####
 
 
 
